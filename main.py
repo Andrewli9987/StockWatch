@@ -1,9 +1,12 @@
+from itertools import product
+
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import ProductDB
+from models import ProductDB, PriceHistoryDB
+from decimal import Decimal
 
 
 app = FastAPI(title="StockWatch API")
@@ -55,6 +58,60 @@ def update_product(
         updated_product: ProductCreate,
         db: Session = Depends(get_db)
 ):
+    # Step 1: Find the product
+    product = db.get(ProductDB, product_id)
+
+    if product is None:
+        raise HTTPException(
+            status_code = 404,
+            detail = "Product not found"
+        )
+    # Step 2: Compare prices
+    old_price = Decimal(str(product.price))
+    new_price = Decimal(str(updated_product.price))
+
+    # Step 3: Save history if price changed
+    if old_price != new_price:
+
+        # Check whether history already exists
+        existing_history = db.query(PriceHistoryDB).filter(
+            PriceHistoryDB.product_id == product.id
+        ).first()
+
+        # Save the original price only once
+        if existing_history is None:
+            db.add(
+                PriceHistoryDB(
+                    product_id = product.id,
+                    price = old_price
+                )
+            )
+        #save the updated price
+        db.add(
+            PriceHistoryDB(
+                product_id = product_id,
+                price = new_price
+            )
+        )
+
+    # Step 4: Update product information
+    product.name = updated_product.name
+    product.price = new_price
+    product.quantity = updated_product.quantity
+    product.product_url = updated_product.product_url
+
+    # Step 5: Commit changes
+    db.commit()
+    db.refresh(product)
+
+    return product
+
+@app.get("/products/{product_id}/history")
+def get_price_history(
+        product_id: int,
+        db: Session = Depends(get_db)
+):
+    # Step 1: Check whether the product exists
     product = db.get(ProductDB, product_id)
 
     if product is None:
@@ -63,17 +120,19 @@ def update_product(
             detail = "Product not found"
         )
 
-    product.name = updated_product.name
-    product.price = updated_product.price
-    product.quantity = updated_product.quantity
-    product.product_url = updated_product.product_url
+    # Step 2: Retrieve the product's price history
+    history = (
+        db.query(PriceHistoryDB)
+        .filter(PriceHistoryDB.product_id == product.id)
+        .order_by(
+            PriceHistoryDB.recorded_at.asc(),
+            PriceHistoryDB.id.asc()
+        )
+        .all()
+    )
 
-    db.commit()
-    db.refresh(product)
-
-    return product
-
-
+    # Step 3: Return the records
+    return history
 
 
 @app.delete("/products/{product_id}",status_code=204)
