@@ -1,5 +1,6 @@
 import pytest
 from decimal import Decimal
+from unittest.mock import patch
 
 from conftest import TestingSessionLocal
 from models import ProductDB
@@ -22,7 +23,12 @@ def test_check_product_price_changed(client):
 
     # Step 2: Check the product price
     with TestingSessionLocal() as db:
-        result = check_product_price(db, product_id)
+        with patch(
+            "services.price_checker.fetch_product_price"
+        ) as mock_fetch:
+            mock_fetch.return_value = Decimal("199.99")
+
+            result = check_product_price(db,product_id)
 
     # Step 3: Verify the comparison
     assert result["product_id"] == product_id
@@ -75,12 +81,17 @@ def test_check_product_price_unchanged(client):
     product_id = response.json()["id"]
 
     with TestingSessionLocal() as db:
-        result = check_product_price(db, product_id)
+       with patch(
+           "services.price_checker.fetch_product_price"
+       ) as mock_fetch:
 
-        assert result["product_id"] == product_id
-        assert result["price_changed"] is False
-        assert result["current_price"] == Decimal("199.99")
+            mock_fetch.return_value = Decimal("199.99")
 
+            result = check_product_price(db, product_id)
+
+    assert result["product_id"] == product_id
+    assert result["price_changed"] is False
+    assert result["current_price"] == Decimal("199.99")
 
 def test_check_product_price_not_found(client):
     with TestingSessionLocal() as db:
@@ -108,9 +119,17 @@ def test_repeated_price_checks_do_not_duplicate_history(client):
 
     # Step 2: Run the price checker three times
     with TestingSessionLocal() as db:
-        first_check = check_product_price(db, product_id)
-        second_check = check_product_price(db, product_id)
-        third_check = check_product_price(db, product_id)
+        with patch(
+            "services.price_checker.fetch_product_price"
+        ) as mock_fetch:
+
+            mock_fetch.return_value = Decimal("199.99")
+
+            first_check = check_product_price(db, product_id)
+            second_check = check_product_price(db, product_id)
+            third_check = check_product_price(db, product_id)
+
+            assert mock_fetch.call_count == 3
 
     # Step 3: Verify only the first check detected a change
     assert first_check["price_changed"] is True

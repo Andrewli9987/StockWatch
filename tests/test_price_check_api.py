@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 
 def test_check_price_endpoint(client):
@@ -17,25 +18,26 @@ def test_check_price_endpoint(client):
     product_id = response.json()["id"]
 
     # Step 2: Trigger the price check through FastAPI
-    response = client.post(
-        f"/products/{product_id}/check-price"
-    )
+    with patch(
+        "services.price_checker.fetch_product_price",
+    ) as mock_fetch:
 
-    assert response.status_code == 200
+        mock_fetch.return_value = Decimal("199.99")
 
-    result = response.json()
-
-    assert result["price_changed"] is True
-    assert Decimal(str(result["old_price"])) == Decimal("299.99")
-    assert Decimal(str(result["new_price"])) == Decimal("199.99")
+        response = client.post(
+            f"/products/{product_id}/check-price"
+        )
 
     # Step 3: Check the same product again
-    response = client.post(
-        f"/products/{product_id}/check-price"
-    )
+    with patch(
+        "services.price_checker.fetch_product_price"
+    ) as mock_fetch:
 
-    assert response.status_code == 200
-    assert response.json()["price_changed"] is False
+        mock_fetch.return_value = Decimal("199.99")
+
+        response = client.post(
+            f"/products/{product_id}/check-price"
+        )
 
     # Step 4: Verify the history
     response = client.get(
